@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 
 from efb.discovery import FileDiscoverer
-from efb.terminal import SESSION, print_
+from efb.terminal import SESSION, make_decision, print_
 
 
 def identify_files_to_backup():
@@ -37,32 +37,36 @@ def identify_duplicates():
     fd.discover_files()
     for _, files in fd.hashes.items():
         if len(files) > 1:
-            delete_duplicates(files)
-    # Option 1: Keep first element always. Option 2: Decide for each file.
+            ask_for_each_file = make_decision('Decide action for each file (or always keep first duplicate)?', default='y')
+            delete_duplicates(files, ask_for_each_file=ask_for_each_file)
 
 
 def get_names(files: List[Path]) -> List[str]:
     return [str(file_) for file_ in files]
 
 
-def delete_duplicates(files: List[Path]) -> None:
+def delete_duplicates(files: List[Path], ask_for_each_file: bool) -> None:
     # FIXME Show paths relative
     print_(f'Found {files[0]} with {len(files) - 1} duplicates:')
     print_(get_names(files))
-    options = ', '.join((str(index) for index, _ in enumerate(files)))
-    to_keep = SESSION.prompt(f'Which file do you want to keep? Options: {options} (Empty: Keep all)')
-    try:
-        if to_keep:
-            to_keep = int(to_keep)
-            if to_keep < 0 or to_keep >= len(files):
-                raise ValueError('Index out of range')
-            keeping = files.pop(to_keep)
-        else:
-            keeping = deepcopy(files)
-            files = []
-    except ValueError:
-        print_('[Error] Bad index. Either you did not given an integer or it was out of range')
-        return
+    if ask_for_each_file:
+        options = ', '.join((str(index) for index, _ in enumerate(files)))
+        to_keep = SESSION.prompt(f'Which file do you want to keep? Options: {options} (Empty: Keep all)')
+        try:
+            if to_keep:
+                to_keep = int(to_keep)
+                if to_keep < 0 or to_keep >= len(files):
+                    raise ValueError('Index out of range')
+                keeping = files.pop(to_keep)
+            else:
+                keeping = deepcopy(files)
+                files = []
+        except ValueError:
+            print_('[Error] Bad index. Either you did not given an integer or it was out of range')
+            return
+    else:
+        keeping = files.pop(0)
+
     print_(f'Keeping {keeping}\nDeleting {get_names(files)}')
     for file_ in files:
         file_.unlink(missing_ok=True)
