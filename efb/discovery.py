@@ -7,7 +7,7 @@ from common_helper_process import execute_shell_command
 from prompt_toolkit.completion import PathCompleter
 from prompt_toolkit.shortcuts import ProgressBar
 
-from efb.terminal import make_decision, SESSION
+from efb.terminal import SESSION, make_decision, print_
 
 HASH_SOFT_CAP = 100 * 1000 * 1000
 HASH_HARD_CAP = 1000 * 1000 * 1000
@@ -30,31 +30,34 @@ class FileDiscoverer:
 
     def exclude_root_files(self):
         for file_ in self.unsupported_files:
-            print(f'Found unsupported file {file_}')
+            print_(f'Found unsupported file {file_}')
             self.files.remove(file_)
 
     def iterate_fs_roots(self):
         for root in self.fs_roots:
             self._iterate_dir(Path(root))
-            print(f'Found {len(self.files)} files on {root}.')
+            print_(f'Found {len(self.files)} files on {root}.')
 
     def _iterate_dir(self, directory: Path):
         self.files.extend(iterate_root(directory))
 
     def compute_hashes(self):
-        with ProgressBar() as bar:
-            for file_ in bar(self.files, total=len(self.files)):
+        with ProgressBar() as progress_bar:
+            for file_ in progress_bar(self.files, total=len(self.files)):
                 try:
-                    if file_.stat().st_size > HASH_HARD_CAP:
-                        print(f'Not hashing {file_} due to size limit. Please back up by hand if wanted.')
-                        continue
-                    elif file_.stat().st_size > HASH_SOFT_CAP:
-                        hash_ = execute_shell_command(f'sha256sum "{file_.absolute()}"', timeout=30).split()[0]
-                    else:
-                        hash_ = sha256(file_.read_bytes()).hexdigest()
-                    self.hashes.setdefault(hash_, []).append(file_)
+                    self._compute_hash(file_)
                 except (PermissionError, FileNotFoundError, IndexError):
                     self.unsupported_files.append(file_)
+
+    def _compute_hash(self, file_):
+        if file_.stat().st_size > HASH_HARD_CAP:
+            print_(f'Not hashing {file_} due to size limit. Please back up by hand if wanted.')
+            return  # check if we have to append to unsupported_files here
+        if file_.stat().st_size > HASH_SOFT_CAP:
+            hash_ = execute_shell_command(f'sha256sum "{file_.absolute()}"', timeout=30).split()[0]
+        else:
+            hash_ = sha256(file_.read_bytes()).hexdigest()
+        self.hashes.setdefault(hash_, []).append(file_)
 
     def select_fs_roots(self):
         while make_decision('Do you wish to add a root?', default='y', rprompt=lambda: str(self.fs_roots)):
@@ -63,9 +66,9 @@ class FileDiscoverer:
     def add_root(self):
         answer = SESSION.prompt('Please state your new root as path: ', completer=PathCompleter(), rprompt=lambda: str(self.fs_roots))
         if not Path(answer).exists():
-            print(f'{answer} is no path on this system')
+            print_(f'{answer} is no path on this system')
         elif not Path(answer).is_dir():
-            print(f'Roots must be directories. {answer} is not.')
+            print_(f'Roots must be directories. {answer} is not.')
         else:
             self.fs_roots.append(answer)
 
