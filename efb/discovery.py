@@ -8,6 +8,7 @@ from prompt_toolkit.completion import PathCompleter
 from prompt_toolkit.shortcuts import ProgressBar
 
 from efb.terminal import SESSION, make_decision, print_
+from efb.validator import DirectoryValidator
 
 HASH_SOFT_CAP = 100 * 1000 * 1000
 HASH_HARD_CAP = 1000 * 1000 * 1000
@@ -24,6 +25,7 @@ class FileDiscoverer:
 
     def discover_files(self):
         self.select_fs_roots()
+
         self.iterate_fs_roots()
         self.compute_hashes()
         self.exclude_root_files()
@@ -60,11 +62,15 @@ class FileDiscoverer:
         self.hashes.setdefault(hash_, []).append(file_)
 
     def select_fs_roots(self):
-        while make_decision('Do you wish to add a root?', default='y', rprompt=lambda: str(self.fs_roots)):
+        while make_decision('Do you wish to add a root?', default=True):
             self.add_root()
 
     def add_root(self):
-        answer = SESSION.prompt('Please state your new root as path: ', completer=PathCompleter(), rprompt=lambda: str(self.fs_roots))
+        answer = SESSION.prompt(
+            'Please state your new root as path: ',
+            completer=PathCompleter(),
+            validator=DirectoryValidator()
+        )
         if not Path(answer).exists():
             print_(f'{answer} is no path on this system')
         elif not Path(answer).is_dir():
@@ -81,7 +87,7 @@ def iterate_root(path: Path) -> Iterable[Path]:
         yield from []
 
 
-def _iterate_path_recursively(path: Path):
+def _iterate_path_recursively(path: Path):  # pylint: disable=too-complex
     try:
         if path.is_symlink():
             pass

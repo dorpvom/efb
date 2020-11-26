@@ -6,6 +6,7 @@ from typing import List
 
 from efb.discovery import FileDiscoverer
 from efb.terminal import SESSION, make_decision, print_
+from efb.validator import RangeValidator
 
 
 def identify_files_to_backup():
@@ -35,29 +36,46 @@ def identify_files_to_backup():
 def identify_duplicates():
     fd = FileDiscoverer()
     fd.discover_files()
+    ask_for_each_file = make_decision('Decide action for each file (or always keep first duplicate)?', default=True)
     for _, files in fd.hashes.items():
         if len(files) > 1:
-            ask_for_each_file = make_decision('Decide action for each file (or always keep first duplicate)?', default='y')
             delete_duplicates(files, ask_for_each_file=ask_for_each_file)
 
 
-def get_names(files: List[Path]) -> List[str]:
-    return [str(file_) for file_ in files]
+def get_paths_as_strings(files: List[Path]) -> List[str]:
+    return [str(file_) for file_ in _omit_common_root(files)]
+
+
+def _omit_common_root(files: List[Path]) -> List[Path]:
+    if not files:
+        return files
+
+    ref, common = files[0], None
+
+    for parent in ref.parents:
+        if all(str(file).startswith(str(parent)) for file in files):
+            common = parent
+            break
+
+    if not common:
+        return files
+
+    return [file_.relative_to(common) for file_ in files]
 
 
 def delete_duplicates(files: List[Path], ask_for_each_file: bool) -> None:
-    # FIXME Show paths relative
     print_(f'Found {files[0]} with {len(files) - 1} duplicates:')
-    print_(get_names(files))
+    print_(get_paths_as_strings(files))
     if ask_for_each_file:
-        options = ', '.join((str(index) for index, _ in enumerate(files)))
-        to_keep = SESSION.prompt(f'Which file do you want to keep? Options: {options} (Empty: Keep all)')
+        input_range = list(range(len(files)))
+        options = ', '.join((str(index) for index in input_range))
+        to_keep = SESSION.prompt(
+            f'Which file do you want to keep? {options} (Empty: Keep all): ',
+            validator=RangeValidator(input_range=input_range)
+        )
         try:
             if to_keep:
-                to_keep = int(to_keep)
-                if to_keep < 0 or to_keep >= len(files):
-                    raise ValueError('Index out of range')
-                keeping = files.pop(to_keep)
+                keeping = files.pop(int(to_keep))
             else:
                 keeping = deepcopy(files)
                 files = []
@@ -67,9 +85,9 @@ def delete_duplicates(files: List[Path], ask_for_each_file: bool) -> None:
     else:
         keeping = files.pop(0)
 
-    print_(f'Keeping {keeping}\nDeleting {get_names(files)}')
+    print_(f'Keeping {keeping}\nDeleting {get_paths_as_strings(files)}')
     for file_ in files:
-        file_.unlink(missing_ok=True)
+        file_.unlink()
 
 
 def main():  # pylint: disable=too-complex
